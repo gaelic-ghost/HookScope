@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/HookScope/HookScope.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/HookScope.Tests/HookScope.Tests.csproj" />
+  </Folder>
+</Solution>
