@@ -31,6 +31,17 @@ The signed body was valid JSON but its root value was not an object.
 
 The signed body was not valid JSON.
 
+## operator-api-disabled
+
+`Hooks:OperatorToken` is not configured. HookScope disables delivery inspection
+and retry endpoints until an operator token is supplied through configuration.
+
+## invalid-operator-token
+
+`X-HookScope-Operator-Token` was missing or did not match the configured
+operator token. HookScope requires this header before returning delivery state
+or retrying delivery work.
+
 ## delivery-payload-conflict
 
 The supplied delivery identifier already belongs to a different event name or

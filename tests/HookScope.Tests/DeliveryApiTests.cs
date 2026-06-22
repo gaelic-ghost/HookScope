@@ -30,8 +30,41 @@ public sealed class DeliveryApiTests : IClassFixture<HookScopeApplicationFactory
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
 
-        using HttpResponseMessage lookup = await client.GetAsync("/api/deliveries/invalid-signature");
+        using HttpRequestMessage lookupRequest =
+            CreateOperatorRequest(HttpMethod.Get, "/api/deliveries/invalid-signature");
+        using HttpResponseMessage lookup = await client.SendAsync(lookupRequest);
         Assert.Equal(HttpStatusCode.NotFound, lookup.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeliveryInspectionRequiresOperatorToken()
+    {
+        using HttpResponseMessage response = await client.GetAsync("/api/deliveries");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeliveryInspectionIsDisabledWhenOperatorTokenIsNotConfigured()
+    {
+        using HookScopeApplicationFactory factory =
+            HookScopeApplicationFactory.CreateWithoutOperatorToken();
+        using HttpClient localClient = factory.CreateClient();
+
+        using HttpRequestMessage request =
+            CreateOperatorRequest(HttpMethod.Get, "/api/deliveries");
+        using HttpResponseMessage response = await localClient.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeliveryRetryRequiresOperatorToken()
+    {
+        using HttpResponseMessage response =
+            await client.PostAsync("/api/deliveries/any-delivery/retries", content: null);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
@@ -118,8 +151,9 @@ public sealed class DeliveryApiTests : IClassFixture<HookScopeApplicationFactory
         Assert.Equal(1, failed.Delivery.AttemptCount);
         Assert.Contains("intentionally failed", failed.Delivery.LastError);
 
-        using HttpResponseMessage retry =
-            await client.PostAsync("/api/deliveries/retryable-delivery/retries", content: null);
+        using HttpRequestMessage retryRequest =
+            CreateOperatorRequest(HttpMethod.Post, "/api/deliveries/retryable-delivery/retries");
+        using HttpResponseMessage retry = await client.SendAsync(retryRequest);
         Assert.Equal(HttpStatusCode.Accepted, retry.StatusCode);
 
         DeliveryDetailsResponse completed =
@@ -154,7 +188,8 @@ public sealed class DeliveryApiTests : IClassFixture<HookScopeApplicationFactory
         while (!timeout.IsCancellationRequested)
         {
             DeliveryDetailsResponse? details =
-                await client.GetFromJsonAsync<DeliveryDetailsResponse>(
+                await SendOperatorJsonAsync<DeliveryDetailsResponse>(
+                    HttpMethod.Get,
                     $"/api/deliveries/{deliveryId}",
                     timeout.Token);
 
@@ -191,6 +226,25 @@ public sealed class DeliveryApiTests : IClassFixture<HookScopeApplicationFactory
         request.Headers.Add("X-GitHub-Event", eventName);
         request.Headers.Add("X-Hub-Signature-256", signature);
 
+        return request;
+    }
+
+    private async Task<T?> SendOperatorJsonAsync<T>(
+        HttpMethod method,
+        string requestUri,
+        CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = CreateOperatorRequest(method, requestUri);
+        using HttpResponseMessage response = await client.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        return await response.Content.ReadFromJsonAsync<T>(cancellationToken);
+    }
+
+    private static HttpRequestMessage CreateOperatorRequest(HttpMethod method, string requestUri)
+    {
+        var request = new HttpRequestMessage(method, requestUri);
+        request.Headers.Add("X-HookScope-Operator-Token", HookScopeApplicationFactory.OperatorToken);
         return request;
     }
 

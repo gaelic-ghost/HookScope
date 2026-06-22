@@ -50,6 +50,22 @@ API response shapes. It does not own persistence SQL or event-processing rules.
 `GitHubSignatureValidator` is a pure cryptographic boundary. It uses
 constant-time comparison and accepts the exact payload bytes received over HTTP.
 
+### Operator API authorization
+
+Delivery inspection and retry are operator-facing actions. The HTTP adapter
+requires `Hooks:OperatorToken` to be configured before those endpoints are
+usable, and every inspection or retry request must provide the matching
+`X-HookScope-Operator-Token` header. Missing configuration fails closed with
+`503 Service Unavailable`; a missing or wrong request token returns
+`401 Unauthorized`.
+
+This is a narrow bootstrap guard, not a general identity system. It protects the
+current single-operator surface without adding a broader authentication layer
+before roles, users, or deployments earn one. Future HTTP or MCP adapters should
+replace or wrap this with a deployment-appropriate authentication mechanism
+while keeping the same authorization invariant: delivery state reads and retry
+mutation require a trusted operator.
+
 ### Persistence
 
 `DeliveryStore` is a concrete SQLite component rather than a generic repository.
@@ -90,6 +106,10 @@ library that NuGet reported during bootstrap.
 user secrets, or another deployment configuration provider. HookScope refuses
 to start when it is absent or too short.
 
+`Hooks:OperatorToken` is optional at startup but required to use delivery
+inspection and retry endpoints. When it is absent, those operator endpoints are
+disabled rather than left public.
+
 Safe defaults are committed for payload size, polling interval, logging, and the
 local SQLite path. Webhook payloads are persisted because processing requires
 them, but their content is never written to structured logs.
@@ -108,7 +128,7 @@ MCP client:
 Before implementation, the application operations currently exposed through
 `DeliveryStore` and endpoint composition should be factored only as far as
 needed for both adapters to call the same ingest-independent query and retry
-behavior.
+operations with the same authorization and redaction rules.
 
 The MCP design must include:
 

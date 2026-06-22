@@ -14,8 +14,10 @@ HookScope is pre-release software. Security fixes are applied to the current
 ## Operational expectations
 
 - Supply `Hooks:Secret` through a deployment secret provider.
-- Restrict the inspection and retry API to trusted callers before exposing the
-  service outside a development environment.
+- Supply `Hooks:OperatorToken` through a deployment secret provider before
+  using the inspection or retry API.
+- Restrict the inspection and retry API to trusted network paths before
+  exposing the service outside a development environment.
 - Terminate TLS before webhook traffic reaches HookScope.
 - Apply payload retention and redaction policies appropriate to the webhook
   sources being received.

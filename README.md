@@ -25,11 +25,12 @@ within later .NET 10 feature bands through `global.json`.
 
 ## Run locally
 
-Set a local webhook secret through configuration. Do not add the value to
-`appsettings.json` or commit it.
+Set local webhook and operator secrets through configuration. Do not add these
+values to `appsettings.json` or commit them.
 
 ```zsh
 export Hooks__Secret='replace-with-a-long-random-local-secret'
+export Hooks__OperatorToken='replace-with-a-different-long-random-local-token'
 dotnet restore
 dotnet run --project src/HookScope
 ```
@@ -63,8 +64,13 @@ curl --fail-with-body \
 Inspect recent deliveries:
 
 ```zsh
-curl --fail-with-body http://localhost:5115/api/deliveries
-curl --fail-with-body http://localhost:5115/api/deliveries/demo-delivery-1
+curl --fail-with-body \
+  --header "X-HookScope-Operator-Token: $Hooks__OperatorToken" \
+  http://localhost:5115/api/deliveries
+
+curl --fail-with-body \
+  --header "X-HookScope-Operator-Token: $Hooks__OperatorToken" \
+  http://localhost:5115/api/deliveries/demo-delivery-1
 ```
 
 Only failed deliveries are eligible for retry:
@@ -72,17 +78,23 @@ Only failed deliveries are eligible for retry:
 ```zsh
 curl --fail-with-body \
   --request POST \
+  --header "X-HookScope-Operator-Token: $Hooks__OperatorToken" \
   http://localhost:5115/api/deliveries/demo-delivery-1/retries
 ```
+
+Delivery inspection and retry endpoints are disabled until
+`Hooks:OperatorToken` is configured, and they return `401 Unauthorized` when the
+`X-HookScope-Operator-Token` header is missing or wrong. This intentionally
+keeps operator-facing state and retry mutation out of unauthenticated traffic.
 
 ## API behavior
 
 | Route | Behavior |
 | --- | --- |
 | `POST /api/deliveries` | Validates, deduplicates, persists, and queues a delivery |
-| `GET /api/deliveries?limit=25` | Lists recent delivery states |
-| `GET /api/deliveries/{deliveryId}` | Returns one delivery and all processing attempts |
-| `POST /api/deliveries/{deliveryId}/retries` | Requeues a failed delivery |
+| `GET /api/deliveries?limit=25` | Lists recent delivery states for callers with the operator token |
+| `GET /api/deliveries/{deliveryId}` | Returns one delivery and all processing attempts for callers with the operator token |
+| `POST /api/deliveries/{deliveryId}/retries` | Requeues a failed delivery for callers with the operator token |
 | `GET /healthz` | Reports process health |
 | `GET /openapi/v1.json` | Returns the generated OpenAPI document |
 

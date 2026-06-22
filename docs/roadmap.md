@@ -11,13 +11,15 @@
 - [x] Process accepted deliveries through a durable background queue
 - [x] Recover processing work interrupted by service restart
 - [x] Expose recent delivery, delivery detail, and retry JSON endpoints
+- [x] Guard delivery inspection and retry endpoints with an operator token
 - [x] Generate OpenAPI
 - [x] Cover success, failure, duplicate, conflict, malformed, retry, and
   documentation behavior with integration tests
 
 ## Next: production hardening
 
-- [ ] Add API authentication for delivery inspection and retry endpoints
+- [ ] Replace the bootstrap operator token with deployment-appropriate
+  authentication and authorization when a concrete hosting target is selected
 - [ ] Add retention and payload-redaction policies
 - [ ] Add pagination with stable cursors
 - [ ] Add configurable retry limits and backoff for automatic retry policies

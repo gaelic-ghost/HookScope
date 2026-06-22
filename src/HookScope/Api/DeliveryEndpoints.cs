@@ -11,6 +11,8 @@ namespace HookScope.Api;
 
 public static partial class DeliveryEndpoints
 {
+    private const string OperatorTokenHeaderName = "X-HookScope-Operator-Token";
+
     public static IEndpointRouteBuilder MapDeliveryEndpoints(this IEndpointRouteBuilder endpoints)
     {
         RouteGroupBuilder group = endpoints.MapGroup("/api/deliveries")
@@ -30,20 +32,26 @@ public static partial class DeliveryEndpoints
         group.MapGet("/", GetRecentAsync)
             .WithName("GetRecentDeliveries")
             .WithSummary("Returns recent webhook deliveries and their current processing state.")
-            .Produces<IReadOnlyList<DeliveryResponse>>();
+            .Produces<IReadOnlyList<DeliveryResponse>>()
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         group.MapGet("/{deliveryId}", GetByIdAsync)
             .WithName("GetDelivery")
             .WithSummary("Returns one webhook delivery and its processing-attempt history.")
             .Produces<DeliveryDetailsResponse>()
-            .ProducesProblem(StatusCodes.Status404NotFound);
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         group.MapPost("/{deliveryId}/retries", RetryAsync)
             .WithName("RetryDelivery")
             .WithSummary("Queues an explicit retry for a failed webhook delivery.")
             .Produces<RetryResponse>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict);
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         return endpoints;
     }
@@ -180,10 +188,17 @@ public static partial class DeliveryEndpoints
     }
 
     private static async Task<IResult> GetRecentAsync(
+        HttpRequest request,
         DeliveryStore deliveryStore,
+        IOptions<HookOptions> hookOptions,
         int limit = 25,
         CancellationToken cancellationToken = default)
     {
+        if (AuthorizeOperator(request, hookOptions.Value) is { } authorizationProblem)
+        {
+            return authorizationProblem;
+        }
+
         if (limit is < 1 or > 100)
         {
             return Problem(
@@ -200,10 +215,17 @@ public static partial class DeliveryEndpoints
     }
 
     private static async Task<IResult> GetByIdAsync(
+        HttpRequest request,
         string deliveryId,
         DeliveryStore deliveryStore,
+        IOptions<HookOptions> hookOptions,
         CancellationToken cancellationToken)
     {
+        if (AuthorizeOperator(request, hookOptions.Value) is { } authorizationProblem)
+        {
+            return authorizationProblem;
+        }
+
         DeliveryDetails? details =
             await deliveryStore.GetDetailsAsync(deliveryId, cancellationToken);
 
@@ -220,11 +242,18 @@ public static partial class DeliveryEndpoints
     }
 
     private static async Task<IResult> RetryAsync(
+        HttpRequest request,
         string deliveryId,
         DeliveryStore deliveryStore,
+        IOptions<HookOptions> hookOptions,
         ILoggerFactory loggerFactory,
         CancellationToken cancellationToken)
     {
+        if (AuthorizeOperator(request, hookOptions.Value) is { } authorizationProblem)
+        {
+            return authorizationProblem;
+        }
+
         RetryOutcome outcome =
             await deliveryStore.QueueRetryAsync(deliveryId, cancellationToken);
 
@@ -276,6 +305,40 @@ public static partial class DeliveryEndpoints
     {
         value = request.Headers[headerName].FirstOrDefault()?.Trim() ?? string.Empty;
         return value.Length > 0;
+    }
+
+    private static IResult? AuthorizeOperator(HttpRequest request, HookOptions options)
+    {
+        if (string.IsNullOrEmpty(options.OperatorToken))
+        {
+            return Problem(
+                StatusCodes.Status503ServiceUnavailable,
+                "Operator API is disabled",
+                "Configure Hooks:OperatorToken before using HookScope delivery inspection or retry endpoints.",
+                "operator-api-disabled");
+        }
+
+        string? suppliedToken = request.Headers[OperatorTokenHeaderName].FirstOrDefault();
+        if (string.IsNullOrEmpty(suppliedToken)
+            || !FixedTimeTokenEquals(options.OperatorToken, suppliedToken))
+        {
+            return Problem(
+                StatusCodes.Status401Unauthorized,
+                "Operator token is invalid",
+                $"Set the {OperatorTokenHeaderName} header to a valid HookScope operator token before reading delivery state or retrying delivery work.",
+                "invalid-operator-token");
+        }
+
+        return null;
+    }
+
+    private static bool FixedTimeTokenEquals(string expectedToken, string suppliedToken)
+    {
+        byte[] expectedBytes = Encoding.UTF8.GetBytes(expectedToken);
+        byte[] suppliedBytes = Encoding.UTF8.GetBytes(suppliedToken);
+
+        return suppliedBytes.Length == expectedBytes.Length
+            && CryptographicOperations.FixedTimeEquals(expectedBytes, suppliedBytes);
     }
 
     private static async Task<byte[]> ReadPayloadAsync(

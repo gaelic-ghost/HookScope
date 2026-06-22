@@ -12,11 +12,26 @@ namespace HookScope.Tests;
 public sealed class HookScopeApplicationFactory : WebApplicationFactory<Program>
 {
     public const string Secret = "hookscope-integration-test-secret";
+    public const string OperatorToken = "hookscope-integration-operator-token";
 
+    private readonly bool configureOperatorToken;
     private readonly string databasePath =
         Path.Combine(Path.GetTempPath(), $"hookscope-tests-{Guid.NewGuid():N}.db");
 
+    public HookScopeApplicationFactory()
+        : this(configureOperatorToken: true)
+    {
+    }
+
+    private HookScopeApplicationFactory(bool configureOperatorToken)
+    {
+        this.configureOperatorToken = configureOperatorToken;
+    }
+
     public ScriptedWebhookEventProcessor Processor { get; } = new();
+
+    public static HookScopeApplicationFactory CreateWithoutOperatorToken() =>
+        new(configureOperatorToken: false);
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -24,14 +39,20 @@ public sealed class HookScopeApplicationFactory : WebApplicationFactory<Program>
         builder.ConfigureAppConfiguration(
             (_, configuration) =>
             {
-                configuration.AddInMemoryCollection(
-                    new Dictionary<string, string?>
-                    {
-                        [$"{DatabaseOptions.SectionName}:ConnectionString"] =
-                            $"Data Source={databasePath};Mode=ReadWriteCreate;Cache=Shared",
-                        [$"{HookOptions.SectionName}:Secret"] = Secret,
-                        [$"{HookOptions.SectionName}:WorkerPollIntervalMilliseconds"] = "20",
-                    });
+                var settings = new Dictionary<string, string?>
+                {
+                    [$"{DatabaseOptions.SectionName}:ConnectionString"] =
+                        $"Data Source={databasePath};Mode=ReadWriteCreate;Cache=Shared",
+                    [$"{HookOptions.SectionName}:Secret"] = Secret,
+                    [$"{HookOptions.SectionName}:WorkerPollIntervalMilliseconds"] = "20",
+                };
+
+                if (configureOperatorToken)
+                {
+                    settings[$"{HookOptions.SectionName}:OperatorToken"] = OperatorToken;
+                }
+
+                configuration.AddInMemoryCollection(settings);
             });
 
         builder.ConfigureServices(
